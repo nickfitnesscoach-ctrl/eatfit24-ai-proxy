@@ -12,15 +12,15 @@
 - [x] Создать модуль `config.py` для управления настройками.
 - [x] Интегрировать OpenRouter в эндпоинт `/api/v1/ai/recognize-food`.
 
-## Phase 2 — Docker & Deploy (ТЕКУЩАЯ)
+## Phase 2 — Docker & Deploy
 - [x] Написать Dockerfile.
 - [x] Написать docker-compose.yml.
 - [x] Добавить .dockerignore для оптимизации сборки.
 - [x] Добавить healthcheck в docker-compose.yml.
 - [x] Протестировать сборку и запуск в Docker.
-- [ ] Деплой на NL-сервер, проверка /health из РФ-сервера.
+- [x] Деплой на NL-сервер, проверка /health из РФ-сервера.
 
-## Phase 3 — Security & Observability
+## Phase 3 — Security & Observability (ТЕКУЩАЯ)
 - [ ] Ограничить доступ (Tailscale / firewall + API key).
 - [ ] Добавить базовое логирование ошибок.
 - [ ] Подготовить короткую API-доку для Django-бэкенда.

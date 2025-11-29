@@ -29,6 +29,7 @@ uvicorn app.main:app --reload --port 8001
 ```bash
 curl -X POST http://127.0.0.1:8001/api/v1/ai/recognize-food \
   -H "Content-Type: application/json" \
+  -H "X-API-Key: your_api_key_here" \
   -d '{
     "image_url": "https://example.com/food.jpg",
     "user_comment": "Это гречка с курицей",
@@ -77,6 +78,43 @@ OPENROUTER_API_KEY=your_api_key_here
 OPENROUTER_MODEL=anthropic/claude-3.5-sonnet
 ```
 
+## Docker
+
+### Локальный запуск
+
+```bash
+# Создайте .env файл
+cp .env.example .env
+# Отредактируйте .env и добавьте ваши ключи
+
+# Запустите контейнер
+docker compose up -d --build
+
+# Проверьте статус
+docker compose ps
+docker logs eatfit24-ai-proxy
+
+# Остановите контейнер
+docker compose down
+```
+
+### Деплой на сервер
+
+Проект автоматически деплоится на NL-сервер при каждом push в `master` ветку через GitHub Actions.
+
+Подробная информация о деплое: см. [DEPLOYMENT.md](DEPLOYMENT.md)
+
+## API Documentation
+
+Полная документация API для интеграции с Django backend: см. [API_DOCS.md](API_DOCS.md)
+
 ## Разработка
 
 Сервер автоматически перезагружается при изменении кода благодаря флагу `--reload`.
+
+## Безопасность
+
+- Доступ ограничен через Tailscale VPN (100.0.0.0/8)
+- API key аутентификация через X-API-Key header
+- Firewall настроен на блокировку внешнего доступа
+- Все запросы логируются с IP адресами и timing информацией

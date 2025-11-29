@@ -1,0 +1,51 @@
+name: Deploy EatFit24 AI Proxy to NL server
+
+on:
+  push:
+    branches: [ master ]   # деплой при пуше в master
+  workflow_dispatch:       # и по кнопке вручную
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup SSH key
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+
+          # Добавляем хост в known_hosts, чтобы не спрашивал "Are you sure..."
+          PORT=${SSH_PORT:-22}
+          ssh-keyscan -p $PORT $SSH_HOST >> ~/.ssh/known_hosts
+
+      - name: Deploy to NL server via SSH
+        env:
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+        run: |
+          PORT=${SSH_PORT:-22}
+
+          ssh -p $PORT $SSH_USER@$SSH_HOST << 'EOF'
+            set -e
+
+            cd /opt/eatfit24-ai-proxy
+
+            echo ">>> Git pull"
+            git pull
+
+            echo ">>> Docker compose up"
+            docker compose up -d --build
+
+            echo ">>> Current containers"
+            docker compose ps
+          EOF

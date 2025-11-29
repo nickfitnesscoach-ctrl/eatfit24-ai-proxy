@@ -35,6 +35,12 @@ class Settings(BaseSettings):
     app_name: str = Field(default="EatFit24 AI Proxy", description="Application name")
     log_level: str = Field(default="INFO", description="Logging level")
 
+    # File upload limits
+    max_image_size_bytes: int = Field(
+        default=5 * 1024 * 1024,  # 5 MB
+        description="Maximum allowed image file size in bytes"
+    )
+
     model_config = SettingsConfigDict(
         env_file=str(PROJECT_ROOT / ".env"),
         env_file_encoding="utf-8",

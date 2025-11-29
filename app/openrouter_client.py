@@ -1,4 +1,5 @@
 import json
+import base64
 import logging
 from typing import Optional, List
 import httpx
@@ -13,7 +14,7 @@ class OpenRouterError(Exception):
     pass
 
 
-def build_food_recognition_prompt(image_url: str, user_comment: Optional[str] = None, locale: str = "ru") -> str:
+def build_food_recognition_prompt(user_comment: Optional[str] = None, locale: str = "ru") -> str:
     """Build prompt for food recognition task"""
 
     base_prompt = """Analyze the food image and return a JSON response with the following structure:
@@ -118,8 +119,10 @@ def parse_ai_response(response_text: str) -> tuple[List[FoodItem], Optional[str]
         raise OpenRouterError(f"Invalid data type in AI response: {e}")
 
 
-async def recognize_food_with_openrouter(
-    image_url: str,
+async def recognize_food_with_bytes(
+    image_bytes: bytes,
+    filename: str,
+    content_type: str,
     user_comment: Optional[str] = None,
     locale: str = "ru"
 ) -> tuple[List[FoodItem], TotalNutrition, Optional[str]]:
@@ -127,7 +130,9 @@ async def recognize_food_with_openrouter(
     Call OpenRouter API to recognize food in image and return nutritional info
 
     Args:
-        image_url: URL of the food image
+        image_bytes: Raw image file bytes
+        filename: Original filename (for logging)
+        content_type: MIME type of the image (e.g., "image/jpeg")
         user_comment: Optional user comment about the food
         locale: Language locale for the prompt (default: "ru")
 
@@ -138,7 +143,13 @@ async def recognize_food_with_openrouter(
         OpenRouterError: If API call fails or response is invalid
     """
 
-    prompt = build_food_recognition_prompt(image_url, user_comment, locale)
+    # Convert bytes to base64 data URL
+    b64_image = base64.b64encode(image_bytes).decode("ascii")
+    data_url = f"data:{content_type};base64,{b64_image}"
+
+    logger.debug(f"Converted image to base64 data URL (length: {len(data_url)} chars)")
+
+    prompt = build_food_recognition_prompt(user_comment, locale)
 
     headers = {
         "Authorization": f"Bearer {settings.openrouter_api_key}",
@@ -160,7 +171,7 @@ async def recognize_food_with_openrouter(
                     {
                         "type": "image_url",
                         "image_url": {
-                            "url": str(image_url)
+                            "url": data_url
                         }
                     }
                 ]

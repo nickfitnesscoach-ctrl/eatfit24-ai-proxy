@@ -1,6 +1,6 @@
 # EatFit24 AI Proxy
 
-Микросервис, который принимает фото еды (по URL) и опциональный комментарий пользователя,
+Микросервис, который принимает фото еды (файл изображения) и опциональный комментарий пользователя,
 вызывает внешнюю AI-модель (OpenRouter) и возвращает структуру с продуктами и КБЖУ.
 
 ## Стек
@@ -28,14 +28,13 @@ uvicorn app.main:app --reload --port 8001
 
 ```bash
 curl -X POST http://127.0.0.1:8001/api/v1/ai/recognize-food \
-  -H "Content-Type: application/json" \
   -H "X-API-Key: your_api_key_here" \
-  -d '{
-    "image_url": "https://example.com/food.jpg",
-    "user_comment": "Это гречка с курицей",
-    "locale": "ru"
-  }'
+  -F "image=@/path/to/food-photo.jpg" \
+  -F "user_comment=Это гречка с курицей" \
+  -F "locale=ru"
 ```
+
+**Важно**: API принимает только `multipart/form-data` с файлом изображения (JPEG/PNG, макс. 5 МБ).
 
 ### Пример ответа
 
@@ -76,6 +75,8 @@ curl -X POST http://127.0.0.1:8001/api/v1/ai/recognize-food \
 ```
 OPENROUTER_API_KEY=your_api_key_here
 OPENROUTER_MODEL=anthropic/claude-3.5-sonnet
+API_PROXY_SECRET=your_secret_key_here
+MAX_IMAGE_SIZE_BYTES=5242880  # 5 MB (опционально)
 ```
 
 ## Docker

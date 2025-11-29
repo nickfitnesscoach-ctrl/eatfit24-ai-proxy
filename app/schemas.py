@@ -1,10 +1,5 @@
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel
 from typing import List, Optional
-
-class RecognizeFoodRequest(BaseModel):
-    image_url: HttpUrl
-    user_comment: Optional[str] = None
-    locale: str = "ru"
 
 class FoodItem(BaseModel):
     name: str

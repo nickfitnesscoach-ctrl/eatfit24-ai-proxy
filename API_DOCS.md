@@ -44,14 +44,14 @@ Analyze a food image and return nutritional information.
 {
   "image_url": "https://example.com/food-image.jpg",
   "user_comment": "Grilled chicken with rice",  // optional
-  "locale": "en"  // optional, default: "en"
+  "locale": "ru"  // optional, default: "ru"
 }
 ```
 
 **Request Fields**:
 - `image_url` (string, required): URL of the food image to analyze
-- `user_comment` (string, optional): Additional context about the food
-- `locale` (string, optional): Language for response (e.g., "en", "ru")
+- `user_comment` (string, optional): Additional context about the food. If not provided, the model analyzes only the image content.
+- `locale` (string, optional): Language for response (e.g., "ru", "en"). Default: "ru"
 
 **Response** (200 OK):
 ```json
@@ -125,14 +125,14 @@ import requests
 API_URL = "http://100.84.210.65:8001"
 API_KEY = "your_api_key_here"
 
-def recognize_food(image_url: str, user_comment: str = None, locale: str = "en"):
+def recognize_food(image_url: str, user_comment: str = None, locale: str = "ru"):
     """
     Call the AI Proxy to recognize food in an image
 
     Args:
         image_url: URL of the food image
-        user_comment: Optional comment about the food
-        locale: Language code (default: "en")
+        user_comment: Optional comment about the food. If not provided, only image is analyzed.
+        locale: Language code (default: "ru")
 
     Returns:
         dict: Response with recognized food items and totals
@@ -185,8 +185,10 @@ except Exception as e:
 
 ## Notes
 
-- The service is only accessible within the Tailscale VPN network
-- All requests are logged with timing information
+- **This API is internal and must not be exposed to the public internet**. Access is restricted via Tailscale VPN + API key authentication.
+- The service is only accessible within the Tailscale VPN network (100.0.0.0/8)
+- All requests are logged with timing information for monitoring and debugging
 - Images should be publicly accessible URLs (HTTPS recommended)
 - Recommended timeout: 30 seconds (AI processing may take time)
 - Maximum image size is determined by the AI model limits
+- Default locale is "ru" for Russian-speaking users. Use "en" for English responses.

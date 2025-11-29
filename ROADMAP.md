@@ -1,14 +1,16 @@
 # Roadmap: EatFit24 AI Proxy
 
-## Phase 0 — Skeleton (ТЕКУЩАЯ)
+## Phase 0 — Skeleton
 - [x] Создать проект, venv, базовую структуру.
 - [x] Реализовать FastAPI с /health.
 - [x] Добавить схемы запроса/ответа и заглушку /api/v1/ai/recognize-food.
 
-## Phase 1 — OpenRouter integration
-- [ ] Добавить модуль `openrouter_client.py`.
-- [ ] Вынести промпт и парсинг ответа модели.
-- [ ] Подключить переменные окружения (`OPENROUTER_API_KEY` и т.д.).
+## Phase 1 — OpenRouter integration (ТЕКУЩАЯ)
+- [x] Добавить модуль `openrouter_client.py`.
+- [x] Вынести промпт и парсинг ответа модели.
+- [x] Подключить переменные окружения (`OPENROUTER_API_KEY` и т.д.).
+- [x] Создать модуль `config.py` для управления настройками.
+- [x] Интегрировать OpenRouter в эндпоинт `/api/v1/ai/recognize-food`.
 
 ## Phase 2 — Docker & Deploy
 - [x] Написать Dockerfile.

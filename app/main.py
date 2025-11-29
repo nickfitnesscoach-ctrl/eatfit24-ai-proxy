@@ -1,20 +1,54 @@
+import logging
 from fastapi import FastAPI, HTTPException
-from app.schemas import RecognizeFoodRequest, RecognizeFoodResponse, TotalNutrition
+from app.schemas import RecognizeFoodRequest, RecognizeFoodResponse
+from app.openrouter_client import recognize_food_with_openrouter, OpenRouterError
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="EatFit24 AI Proxy")
+
 
 @app.get("/health")
 async def health():
     return {"status": "ok"}
 
+
 @app.post("/api/v1/ai/recognize-food", response_model=RecognizeFoodResponse)
 async def recognize_food(payload: RecognizeFoodRequest):
+    """
+    Recognize food items in an image and return nutritional information
+
+    Args:
+        payload: Request containing image_url, optional user_comment, and locale
+
+    Returns:
+        RecognizeFoodResponse with food items, totals, and optional model notes
+
+    Raises:
+        HTTPException: 400 for bad requests, 500 for server/API errors
+    """
     try:
-        # Временный stub-ответ
-        return RecognizeFoodResponse(
-            items=[],
-            total=TotalNutrition(kcal=0, protein=0, fat=0, carbs=0),
-            model_notes="Stub response. OpenRouter not connected yet."
+        logger.info(f"Processing food recognition request for image: {payload.image_url}")
+
+        items, total, model_notes = await recognize_food_with_openrouter(
+            image_url=str(payload.image_url),
+            user_comment=payload.user_comment,
+            locale=payload.locale
         )
+
+        logger.info(f"Successfully recognized {len(items)} food items")
+
+        return RecognizeFoodResponse(
+            items=items,
+            total=total,
+            model_notes=model_notes
+        )
+
+    except OpenRouterError as e:
+        logger.error(f"OpenRouter error: {e}")
+        raise HTTPException(status_code=500, detail=f"AI service error: {str(e)}")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Unexpected error: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")

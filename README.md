@@ -1,15 +1,15 @@
 # EatFit24 AI Proxy
 
-8:@>A5@28A, :>B>@K9 ?@8=8<05B D>B> 54K (?> URL) 8 >?F8>=0;L=K9 :><<5=B0@89 ?>;L7>20B5;O,
-2K7K205B 2=5H=NN AI-<>45;L (OpenRouter) 8 2>72@0I05B AB@C:BC@C A ?@>4C:B0<8 8 #.
+Микросервис, который принимает фото еды (по URL) и опциональный комментарий пользователя,
+вызывает внешнюю AI-модель (OpenRouter) и возвращает структуру с продуктами и КБЖУ.
 
-## !B5:
+## Стек
 - Python 3.12+
 - FastAPI
 - Uvicorn
 - httpx
 
-## KAB@K9 AB0@B
+## Быстрый старт
 
 ```bash
 python -m venv venv
@@ -18,31 +18,31 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8001
 ```
 
-## -=4?>8=BK
+## Эндпоинты
 
-**GET /health**  ?@>25@:0 A>AB>O=8O.
+**GET /health** — проверка состояния.
 
-**POST /api/v1/ai/recognize-food**  >A=>2=>9 AI-M=4?>8=B.
+**POST /api/v1/ai/recognize-food** — основной AI-эндпоинт.
 
-### @8<5@ 70?@>A0
+### Пример запроса
 
 ```bash
 curl -X POST http://127.0.0.1:8001/api/v1/ai/recognize-food \
   -H "Content-Type: application/json" \
   -d '{
     "image_url": "https://example.com/food.jpg",
-    "user_comment": "-B> 3@5G:0 A :C@8F59",
+    "user_comment": "Это гречка с курицей",
     "locale": "ru"
   }'
 ```
 
-### @8<5@ >B25B0
+### Пример ответа
 
 ```json
 {
   "items": [
     {
-      "name": "@5G:0 >B20@=0O",
+      "name": "Гречка отварная",
       "grams": 150.0,
       "kcal": 165.0,
       "protein": 6.0,
@@ -50,7 +50,7 @@ curl -X POST http://127.0.0.1:8001/api/v1/ai/recognize-food \
       "carbs": 30.0
     },
     {
-      "name": "C@8=0O 3@C4:0",
+      "name": "Куриная грудка",
       "grams": 100.0,
       "kcal": 165.0,
       "protein": 31.0,
@@ -64,19 +64,19 @@ curl -X POST http://127.0.0.1:8001/api/v1/ai/recognize-food \
     "fat": 5.1,
     "carbs": 30.0
   },
-  "model_notes": " 0A?>7=0=> =0 >A=>25 87>1@065=8O 8 :><<5=B0@8O ?>;L7>20B5;O"
+  "model_notes": "Распознано на основе изображения и комментария пользователя"
 }
 ```
 
-## 5@5<5==K5 >:@C65=8O
+## Переменные окружения
 
-!>7409B5 D09; `.env` =0 >A=>25 `.env.example`:
+Создайте файл `.env` на основе `.env.example`:
 
 ```
 OPENROUTER_API_KEY=your_api_key_here
 OPENROUTER_MODEL=anthropic/claude-3.5-sonnet
 ```
 
-##  07@01>B:0
+## Разработка
 
-!5@25@ 02B><0B8G5A:8 ?5@5703@C605BAO ?@8 87<5=5=88 :>40 1;03>40@O D;03C `--reload`.
+Сервер автоматически перезагружается при изменении кода благодаря флагу `--reload`.

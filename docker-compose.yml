@@ -1,0 +1,9 @@
+services:
+  ai-proxy:
+    build: .
+    container_name: eatfit24-ai-proxy
+    env_file:
+      - .env
+    ports:
+      - "8001:8001"
+    restart: unless-stopped

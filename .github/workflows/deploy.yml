@@ -40,8 +40,9 @@ jobs:
 
             cd /opt/eatfit24-ai-proxy
 
-            echo ">>> Git pull"
-            git pull
+            echo ">>> Git fetch and reset"
+            git fetch origin master
+            git reset --hard origin/master
 
             echo ">>> Docker compose up"
             docker compose up -d --build

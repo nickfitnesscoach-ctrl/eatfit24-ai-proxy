@@ -74,7 +74,7 @@ curl -X POST http://127.0.0.1:8001/api/v1/ai/recognize-food \
 
 ```
 OPENROUTER_API_KEY=your_api_key_here
-OPENROUTER_MODEL=anthropic/claude-3.5-sonnet
+OPENROUTER_MODEL=openai/gpt-5-image-mini
 API_PROXY_SECRET=your_secret_key_here
 MAX_IMAGE_SIZE_BYTES=5242880  # 5 MB (опционально)
 ```

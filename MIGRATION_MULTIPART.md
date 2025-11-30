@@ -97,7 +97,7 @@ curl -X POST http://localhost:8001/api/v1/ai/recognize-food \
 Ensure `.env` file has:
 ```
 OPENROUTER_API_KEY=your_key_here
-OPENROUTER_MODEL=anthropic/claude-3.5-sonnet
+OPENROUTER_MODEL=openai/gpt-5-image-mini
 API_PROXY_SECRET=your_secret_here
 MAX_IMAGE_SIZE_BYTES=5242880  # Optional, default: 5 MB
 ```

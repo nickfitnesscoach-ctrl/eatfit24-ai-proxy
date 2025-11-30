@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     # OpenRouter settings
     openrouter_api_key: str = Field(..., description="OpenRouter API key")
     openrouter_model: str = Field(
-        default="anthropic/claude-3.5-sonnet",
+        default="openai/gpt-5-image-mini",
         description="OpenRouter model to use"
     )
     openrouter_base_url: str = Field(

@@ -39,9 +39,43 @@ async def log_requests(request: Request, call_next):
     return response
 
 
+# D-006: Enhanced health check endpoints
 @app.get("/health")
 async def health():
+    """Basic health check - returns ok if app is running"""
     return {"status": "ok"}
+
+
+@app.get("/health/live")
+async def health_live():
+    """Liveness probe - is the app alive?"""
+    return {"status": "alive"}
+
+
+@app.get("/health/ready")
+async def health_ready():
+    """
+    Readiness probe - is the app ready to serve requests?
+    Checks if required configuration is present.
+    """
+    issues = []
+    
+    if not settings.openrouter_api_key:
+        issues.append("OpenRouter API key not configured")
+    
+    if not settings.api_secret_key:
+        issues.append("API secret key not configured")
+    
+    if issues:
+        return {
+            "status": "not_ready",
+            "issues": issues
+        }
+    
+    return {
+        "status": "ready",
+        "model": settings.openrouter_model
+    }
 
 
 ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/jpg"}

@@ -4,6 +4,7 @@ import logging
 import re
 from typing import Optional, List
 import httpx
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from app.config import settings
 from app.schemas import FoodItem, TotalNutrition
 
@@ -217,7 +218,8 @@ def parse_ai_response(response_text: str) -> tuple[List[FoodItem], Optional[str]
                 kcal=float(item_data["kcal"]),
                 protein=float(item_data["protein"]),
                 fat=float(item_data["fat"]),
-                carbs=float(item_data["carbs"])
+                # F-004 FIX: Accept both carbs and carbohydrates from AI response
+                carbohydrates=float(item_data.get("carbs", item_data.get("carbohydrates", 0)))
             ))
 
         model_notes = data.get("model_notes")
@@ -235,6 +237,13 @@ def parse_ai_response(response_text: str) -> tuple[List[FoodItem], Optional[str]
         raise OpenRouterError(f"Invalid data type in AI response: {e}")
 
 
+# A-002 FIX: Add retry decorator for transient failures
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    retry=retry_if_exception_type((httpx.TimeoutException, httpx.RequestError)),
+    reraise=True
+)
 async def recognize_food_with_bytes(
     image_bytes: bytes,
     filename: str,
@@ -296,7 +305,9 @@ async def recognize_food_with_bytes(
     }
 
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        # A-001 FIX: Reduced timeout from 60s to 30s for better UX
+        # Users typically won't wait longer than 30 seconds for recognition
+        async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
                 f"{settings.openrouter_base_url}/chat/completions",
                 headers=headers,
@@ -321,7 +332,7 @@ async def recognize_food_with_bytes(
                 kcal=sum(item.kcal for item in items),
                 protein=sum(item.protein for item in items),
                 fat=sum(item.fat for item in items),
-                carbs=sum(item.carbs for item in items)
+                carbohydrates=sum(item.carbohydrates for item in items)
             )
 
             return items, total, model_notes

@@ -2,22 +2,30 @@ from pydantic import BaseModel, Field
 from typing import List, Optional
 
 class FoodItem(BaseModel):
+    """
+    Food item with nutritional information.
+    
+    Field naming:
+    - Internal (Python): kcal, carbohydrates
+    - Serialization output: kcal, carbohydrates (by_alias=False by default)
+    - Accepts input: both kcal/calories, both carbohydrates/carbs
+    """
     name: str
     grams: float
-    kcal: float = Field(alias="calories")  # Support both kcal and calories
+    kcal: float  # Калории - используем kcal как основное имя
     protein: float
     fat: float
-    # F-004 FIX: Unified field name - use carbohydrates everywhere
-    carbohydrates: float = Field(alias="carbs")  # Accept carbs, output carbohydrates
+    carbohydrates: float  # Углеводы - используем carbohydrates как основное имя
     
     class Config:
         populate_by_name = True  # Allow both field name and alias
 
 class TotalNutrition(BaseModel):
-    kcal: float = Field(alias="calories")
+    """Total nutrition values."""
+    kcal: float
     protein: float
     fat: float
-    carbohydrates: float = Field(alias="carbs")
+    carbohydrates: float
     
     class Config:
         populate_by_name = True

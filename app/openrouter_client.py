@@ -212,14 +212,18 @@ def parse_ai_response(response_text: str) -> tuple[List[FoodItem], Optional[str]
         # Extract items
         items = []
         for item_data in data.get("items", []):
+            # Accept both "kcal" and "calories" from LLM response
+            kcal_value = item_data.get("kcal") or item_data.get("calories") or 0
+            # Accept both "carbs" and "carbohydrates" from LLM response
+            carbs_value = item_data.get("carbs") or item_data.get("carbohydrates") or 0
+            
             items.append(FoodItem(
                 name=item_data["name"],
                 grams=float(item_data["grams"]),
-                kcal=float(item_data["kcal"]),
+                kcal=float(kcal_value),
                 protein=float(item_data["protein"]),
                 fat=float(item_data["fat"]),
-                # F-004 FIX: Accept both carbs and carbohydrates from AI response
-                carbohydrates=float(item_data.get("carbs", item_data.get("carbohydrates", 0)))
+                carbohydrates=float(carbs_value)
             ))
 
         model_notes = data.get("model_notes")

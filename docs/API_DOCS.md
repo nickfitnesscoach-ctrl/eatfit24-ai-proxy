@@ -60,33 +60,34 @@ curl -X POST http://100.84.210.65:8001/api/v1/ai/recognize-food \
 {
   "items": [
     {
-      "food_name_ru": "Куриная грудка гриль",
-      "food_name_en": "Grilled Chicken Breast",
-      "portion_weight_g": 150.0,
-      "calories": 165,
-      "protein_g": 31.0,
-      "fat_g": 3.6,
-      "carbs_g": 0.0
+      "name": "Куриная грудка гриль",
+      "grams": 150.0,
+      "kcal": 165.0,
+      "protein": 31.0,
+      "fat": 3.6,
+      "carbs": 0.0
     },
     {
-      "food_name_ru": "Рис белый отварной",
-      "food_name_en": "Cooked White Rice",
-      "portion_weight_g": 200.0,
-      "calories": 260,
-      "protein_g": 5.4,
-      "fat_g": 0.6,
-      "carbs_g": 56.0
+      "name": "Рис белый отварной",
+      "grams": 200.0,
+      "kcal": 260.0,
+      "protein": 5.4,
+      "fat": 0.6,
+      "carbs": 56.0
     }
   ],
   "total": {
-    "calories": 425,
-    "protein_g": 36.4,
-    "fat_g": 4.2,
-    "carbs_g": 56.0
+    "kcal": 425.0,
+    "protein": 36.4,
+    "fat": 4.2,
+    "carbs": 56.0
   },
-  "model_notes": "High protein meal, low fat"  // optional
+  "model_notes": "High protein meal, low fat"
 }
 ```
+
+**Response Headers**:
+- `X-Request-ID`: Request correlation ID (echoed from request or generated)
 
 **Error Responses**:
 
@@ -195,7 +196,7 @@ try:
         locale="ru"
     )
 
-    print(f"Total calories: {result['total']['calories']}")
+    print(f"Total kcal: {result['total']['kcal']}")
     print(f"Items found: {len(result['items'])}")
 
     for item in result['items']:

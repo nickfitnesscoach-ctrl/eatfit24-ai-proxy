@@ -1,6 +1,7 @@
 import json
 import base64
 import logging
+import asyncio
 import re
 from typing import Optional, List
 import httpx
@@ -12,9 +13,23 @@ logger = logging.getLogger(__name__)
 # Pattern to detect explicit weights in user comments (e.g., "150 г", "200 g")
 GRAMS_PATTERN = re.compile(r"\b\d+\s*(г|гр|g)\b", re.IGNORECASE)
 
+# Retry configuration
+RETRY_MAX_ATTEMPTS = 3
+RETRY_INITIAL_DELAY = 1.0  # seconds
+RETRY_MAX_DELAY = 10.0  # seconds
+RETRY_BACKOFF_MULTIPLIER = 2.0
+RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+NON_RETRYABLE_STATUS_CODES = {400, 401, 403, 413, 422}
+
+# OpenRouter request configuration
+OPENROUTER_TIMEOUT = 30.0  # seconds (P1.3)
+OPENROUTER_MAX_TOKENS = 2000  # P0.1 - cost control
+OPENROUTER_IMAGE_DETAIL = "low"  # P1.4 - cost optimization
+
 
 class OpenRouterError(Exception):
     """Custom exception for OpenRouter API errors"""
+
     pass
 
 
@@ -33,7 +48,9 @@ def has_explicit_grams(user_comment: str | None) -> bool:
     return bool(GRAMS_PATTERN.search(user_comment))
 
 
-def build_food_recognition_prompt(user_comment: Optional[str] = None, locale: str = "ru") -> str:
+def build_food_recognition_prompt(
+    user_comment: Optional[str] = None, locale: str = "ru"
+) -> str:
     """
     Build prompt for food recognition task with weight prioritization
 
@@ -46,7 +63,9 @@ def build_food_recognition_prompt(user_comment: Optional[str] = None, locale: st
     """
 
     # Prepare user comment section
-    comment_text = user_comment.strip() if user_comment and user_comment.strip() else None
+    comment_text = (
+        user_comment.strip() if user_comment and user_comment.strip() else None
+    )
     has_weights = has_explicit_grams(comment_text)
 
     if locale == "ru":
@@ -211,14 +230,16 @@ def parse_ai_response(response_text: str) -> tuple[List[FoodItem], Optional[str]
         # Extract items
         items = []
         for item_data in data.get("items", []):
-            items.append(FoodItem(
-                name=item_data["name"],
-                grams=float(item_data["grams"]),
-                kcal=float(item_data["kcal"]),
-                protein=float(item_data["protein"]),
-                fat=float(item_data["fat"]),
-                carbs=float(item_data["carbs"])
-            ))
+            items.append(
+                FoodItem(
+                    name=item_data["name"],
+                    grams=float(item_data["grams"]),
+                    kcal=float(item_data["kcal"]),
+                    protein=float(item_data["protein"]),
+                    fat=float(item_data["fat"]),
+                    carbs=float(item_data["carbs"]),
+                )
+            )
 
         model_notes = data.get("model_notes")
 
@@ -235,12 +256,97 @@ def parse_ai_response(response_text: str) -> tuple[List[FoodItem], Optional[str]
         raise OpenRouterError(f"Invalid data type in AI response: {e}")
 
 
+async def _make_openrouter_request(
+    client: httpx.AsyncClient, url: str, headers: dict, payload: dict
+) -> httpx.Response:
+    """
+    Make a single request to OpenRouter with retry logic.
+
+    Implements exponential backoff for retryable errors (429, 5xx, timeout).
+    Does NOT retry for non-retryable errors (400, 401, 403, 413, 422).
+    """
+    last_exception = None
+
+    for attempt in range(1, RETRY_MAX_ATTEMPTS + 1):
+        try:
+            response = await client.post(url, headers=headers, json=payload)
+
+            # Check if we should retry based on status code
+            if response.status_code in RETRYABLE_STATUS_CODES:
+                if attempt < RETRY_MAX_ATTEMPTS:
+                    delay = min(
+                        RETRY_INITIAL_DELAY
+                        * (RETRY_BACKOFF_MULTIPLIER ** (attempt - 1)),
+                        RETRY_MAX_DELAY,
+                    )
+                    logger.warning(
+                        f"OpenRouter returned {response.status_code}, "
+                        f"retrying in {delay:.1f}s (attempt {attempt}/{RETRY_MAX_ATTEMPTS})"
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                else:
+                    # Last attempt failed, return the response
+                    logger.error(
+                        f"OpenRouter returned {response.status_code} after "
+                        f"{RETRY_MAX_ATTEMPTS} attempts"
+                    )
+                    return response
+
+            # Non-retryable status or success - return immediately
+            return response
+
+        except httpx.TimeoutException as e:
+            last_exception = e
+            if attempt < RETRY_MAX_ATTEMPTS:
+                delay = min(
+                    RETRY_INITIAL_DELAY * (RETRY_BACKOFF_MULTIPLIER ** (attempt - 1)),
+                    RETRY_MAX_DELAY,
+                )
+                logger.warning(
+                    f"OpenRouter request timed out, "
+                    f"retrying in {delay:.1f}s (attempt {attempt}/{RETRY_MAX_ATTEMPTS})"
+                )
+                await asyncio.sleep(delay)
+                continue
+            else:
+                logger.error(
+                    f"OpenRouter request timed out after {RETRY_MAX_ATTEMPTS} attempts"
+                )
+                raise
+
+        except httpx.RequestError as e:
+            # Network errors - retry
+            last_exception = e
+            if attempt < RETRY_MAX_ATTEMPTS:
+                delay = min(
+                    RETRY_INITIAL_DELAY * (RETRY_BACKOFF_MULTIPLIER ** (attempt - 1)),
+                    RETRY_MAX_DELAY,
+                )
+                logger.warning(
+                    f"OpenRouter request failed ({type(e).__name__}), "
+                    f"retrying in {delay:.1f}s (attempt {attempt}/{RETRY_MAX_ATTEMPTS})"
+                )
+                await asyncio.sleep(delay)
+                continue
+            else:
+                logger.error(
+                    f"OpenRouter request failed after {RETRY_MAX_ATTEMPTS} attempts: {e}"
+                )
+                raise
+
+    # Should not reach here, but just in case
+    if last_exception:
+        raise last_exception
+    raise OpenRouterError("Unexpected retry loop exit")
+
+
 async def recognize_food_with_bytes(
     image_bytes: bytes,
     filename: str,
     content_type: str,
     user_comment: Optional[str] = None,
-    locale: str = "ru"
+    locale: str = "ru",
 ) -> tuple[List[FoodItem], TotalNutrition, Optional[str]]:
     """
     Call OpenRouter API to recognize food in image and return nutritional info
@@ -271,44 +377,58 @@ async def recognize_food_with_bytes(
         "Authorization": f"Bearer {settings.openrouter_api_key}",
         "Content-Type": "application/json",
         "HTTP-Referer": "https://eatfit24.com",
-        "X-Title": "EatFit24"
+        "X-Title": "EatFit24",
     }
 
     payload = {
         "model": settings.openrouter_model,
+        "max_tokens": OPENROUTER_MAX_TOKENS,  # P0.1 - cost control
         "messages": [
             {
                 "role": "user",
                 "content": [
-                    {
-                        "type": "text",
-                        "text": prompt
-                    },
+                    {"type": "text", "text": prompt},
                     {
                         "type": "image_url",
                         "image_url": {
-                            "url": data_url
-                        }
-                    }
-                ]
+                            "url": data_url,
+                            "detail": OPENROUTER_IMAGE_DETAIL,  # P1.4 - cost optimization
+                        },
+                    },
+                ],
             }
-        ]
+        ],
     }
 
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(
+        async with httpx.AsyncClient(timeout=OPENROUTER_TIMEOUT) as client:  # P1.3
+            response = await _make_openrouter_request(
+                client,
                 f"{settings.openrouter_base_url}/chat/completions",
-                headers=headers,
-                json=payload
+                headers,
+                payload,
             )
 
             if response.status_code != 200:
                 error_detail = response.text
-                logger.error(f"OpenRouter API error: {response.status_code} - {error_detail}")
-                raise OpenRouterError(f"OpenRouter API returned {response.status_code}: {error_detail}")
+                logger.error(
+                    f"OpenRouter API error: {response.status_code} - {error_detail}"
+                )
+                raise OpenRouterError(
+                    f"OpenRouter API returned {response.status_code}: {error_detail}"
+                )
 
             result = response.json()
+
+            # P2.4 - Log token usage if available
+            usage = result.get("usage")
+            if usage:
+                logger.info(
+                    f"OpenRouter token usage: "
+                    f"prompt={usage.get('prompt_tokens', 'N/A')}, "
+                    f"completion={usage.get('completion_tokens', 'N/A')}, "
+                    f"total={usage.get('total_tokens', 'N/A')}"
+                )
 
             # Extract AI response text
             ai_response_text = result["choices"][0]["message"]["content"]
@@ -321,7 +441,7 @@ async def recognize_food_with_bytes(
                 kcal=sum(item.kcal for item in items),
                 protein=sum(item.protein for item in items),
                 fat=sum(item.fat for item in items),
-                carbs=sum(item.carbs for item in items)
+                carbs=sum(item.carbs for item in items),
             )
 
             return items, total, model_notes

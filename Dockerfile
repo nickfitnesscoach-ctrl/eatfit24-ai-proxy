@@ -18,6 +18,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY app ./app
 
+# Create non-root user (P2.1 - Security)
+RUN adduser --disabled-password --gecos '' --uid 1000 appuser && \
+    chown -R appuser:appuser /app
+
+# Switch to non-root user
+USER appuser
+
 # Expose port
 EXPOSE 8001
 

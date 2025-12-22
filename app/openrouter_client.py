@@ -115,14 +115,14 @@ def build_food_recognition_prompt(
       "kcal": число,           // калории
       "protein": число,        // белки (г)
       "fat": число,            // жиры (г)
-      "carbs": число           // углеводы (г)
+      "carbohydrates": число   // углеводы (г)
     }}
   ],
   "total": {{
     "kcal": число,
     "protein": число,
     "fat": число,
-    "carbs": число
+    "carbohydrates": число
   }},
   "model_notes": "краткие комментарии к распознаванию, сомнения, уточнения"
 }}
@@ -182,14 +182,14 @@ RESPONSE FORMAT — STRICTLY JSON without extra text:
       "kcal": number,          // calories
       "protein": number,       // protein (g)
       "fat": number,           // fat (g)
-      "carbs": number          // carbohydrates (g)
+      "carbohydrates": number  // carbohydrates (g)
     }}
   ],
   "total": {{
     "kcal": number,
     "protein": number,
     "fat": number,
-    "carbs": number
+    "carbohydrates": number
   }},
   "model_notes": "brief comments on recognition, doubts, clarifications"
 }}
@@ -203,6 +203,33 @@ CRITICALLY IMPORTANT:
 - Use standard nutrition databases for calculating calories and macros."""
 
     return base_prompt
+
+
+def normalize_item_fields(item: dict) -> dict:
+    """
+    Normalize field names to match SSOT schema.
+
+    LLM models may return alternative field names (e.g., "carbs" instead of "carbohydrates",
+    "calories" instead of "kcal"). This function normalizes them to match our schema.
+
+    Args:
+        item: Raw item dict from AI response
+
+    Returns:
+        Normalized item dict with SSOT field names
+    """
+    # Create a copy to avoid mutating the original
+    normalized = item.copy()
+
+    # Normalize: carbs → carbohydrates
+    if "carbs" in normalized and "carbohydrates" not in normalized:
+        normalized["carbohydrates"] = normalized.pop("carbs")
+
+    # Normalize: calories → kcal
+    if "calories" in normalized and "kcal" not in normalized:
+        normalized["kcal"] = normalized.pop("calories")
+
+    return normalized
 
 
 def parse_ai_response(response_text: str) -> tuple[List[FoodItem], Optional[str]]:
@@ -230,14 +257,17 @@ def parse_ai_response(response_text: str) -> tuple[List[FoodItem], Optional[str]
         # Extract items
         items = []
         for item_data in data.get("items", []):
+            # Normalize field names before creating FoodItem
+            normalized_item = normalize_item_fields(item_data)
+
             items.append(
                 FoodItem(
-                    name=item_data["name"],
-                    grams=float(item_data["grams"]),
-                    kcal=float(item_data["kcal"]),
-                    protein=float(item_data["protein"]),
-                    fat=float(item_data["fat"]),
-                    carbs=float(item_data["carbs"]),
+                    name=normalized_item["name"],
+                    grams=float(normalized_item["grams"]),
+                    kcal=float(normalized_item["kcal"]),
+                    protein=float(normalized_item["protein"]),
+                    fat=float(normalized_item["fat"]),
+                    carbohydrates=float(normalized_item["carbohydrates"]),
                 )
             )
 

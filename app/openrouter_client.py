@@ -471,7 +471,7 @@ async def recognize_food_with_bytes(
                 kcal=sum(item.kcal for item in items),
                 protein=sum(item.protein for item in items),
                 fat=sum(item.fat for item in items),
-                carbs=sum(item.carbs for item in items),
+                carbohydrates=sum(item.carbohydrates for item in items),
             )
 
             return items, total, model_notes

@@ -1,9 +1,10 @@
+# .github/workflows/deploy.yml
 name: Deploy EatFit24 AI Proxy to NL server
 
 on:
   push:
-    branches: [ master ]   # деплой при пуше в master
-  workflow_dispatch:       # и по кнопке вручную
+    branches: [ master ]
+  workflow_dispatch:
 
 jobs:
   deploy:
@@ -23,7 +24,6 @@ jobs:
           echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
 
-          # Добавляем хост в known_hosts, чтобы не спрашивал "Are you sure..."
           PORT=${SSH_PORT:-22}
           ssh-keyscan -p $PORT $SSH_HOST >> ~/.ssh/known_hosts
 

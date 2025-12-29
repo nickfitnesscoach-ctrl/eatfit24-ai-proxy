@@ -5,51 +5,100 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
 
-# Get project root directory (one level up from app/)
+# Project root (one level up from app/)
 PROJECT_ROOT = Path(__file__).parent.parent
 
 
 class Settings(BaseSettings):
-    """Application settings loaded from environment variables"""
+    """
+    Application settings loaded from environment variables.
 
-    # OpenRouter settings
-    openrouter_api_key: str = Field(..., description="OpenRouter API key")
+    Env contract is STRICT:
+    every variable uses explicit validation_alias to avoid silent misconfiguration
+    in Docker / CI / VPS environments.
+    """
+
+    # ============================
+    # OpenRouter configuration
+    # ============================
+    openrouter_api_key: str = Field(
+        ...,
+        validation_alias="OPENROUTER_API_KEY",
+        description="OpenRouter API key",
+    )
+
     openrouter_model: str = Field(
         ...,
-        description="OpenRouter model to use (e.g., openai/gpt-4o-mini, google/gemini-2.0-flash-001)",
-    )
-    openrouter_base_url: str = Field(
-        default="https://openrouter.ai/api/v1", description="OpenRouter API base URL"
+        validation_alias="OPENROUTER_MODEL",
+        description="OpenRouter model to use (e.g. openai/gpt-4o-mini)",
     )
 
+    openrouter_base_url: str = Field(
+        default="https://openrouter.ai/api/v1",
+        validation_alias="OPENROUTER_BASE_URL",
+        description="OpenRouter API base URL",
+    )
+
+    # ============================
     # Security
+    # ============================
     api_proxy_secret: str = Field(
         ...,
-        description="Secret for authenticating requests from Django backend (REQUIRED, no default)",
+        validation_alias="API_PROXY_SECRET",
+        description="Secret key for authenticating requests from backend",
     )
 
-    # Application settings
-    app_name: str = Field(default="EatFit24 AI Proxy", description="Application name")
-    log_level: str = Field(default="INFO", description="Logging level")
+    # ============================
+    # App / runtime settings
+    # ============================
+    app_name: str = Field(
+        default="EatFit24 AI Proxy",
+        validation_alias="APP_NAME",
+        description="Application name",
+    )
 
-    # File upload limits
+    log_level: str = Field(
+        default="INFO",
+        validation_alias="LOG_LEVEL",
+        description="Logging level",
+    )
+
     max_image_size_bytes: int = Field(
         default=5 * 1024 * 1024,  # 5 MB
-        description="Maximum allowed image file size in bytes",
+        validation_alias="MAX_IMAGE_SIZE_BYTES",
+        description="Maximum allowed image size in bytes",
     )
 
+    # ============================
+    # Pydantic settings config
+    # ============================
     model_config = SettingsConfigDict(
-        env_file=str(PROJECT_ROOT / ".env"),
+        env_file=str(PROJECT_ROOT / ".env")
+        if (PROJECT_ROOT / ".env").exists()
+        else None,
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
     )
 
 
+# ============================
 # Global settings instance
+# ============================
 settings = Settings()
 
-# Debug: log loaded settings (without sensitive data)
-logger.info(
-    f"Settings loaded: model={settings.openrouter_model}, base_url={settings.openrouter_base_url}"
-)
+# ============================
+# Safe startup log (NO secrets)
+# ============================
+try:
+    env_path = PROJECT_ROOT / ".env"
+    logger.info(
+        "Settings loaded: model=%s base_url=%s max_image_size=%s env_file=%s",
+        settings.openrouter_model,
+        settings.openrouter_base_url,
+        settings.max_image_size_bytes,
+        str(env_path) if env_path.exists() else "ENV_ONLY",
+    )
+except Exception:
+    # Config must NEVER crash import
+    pass

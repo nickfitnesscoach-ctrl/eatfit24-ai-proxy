@@ -1,10 +1,14 @@
+# app/openrouter_client.py
 import base64
+import json
 import logging
 import asyncio
 import re
-from typing import Optional, List
+from typing import Optional, List, Any, Tuple
+
 import httpx
 from json_repair import repair_json
+
 from app.config import settings
 from app.schemas import FoodItem, TotalNutrition
 
@@ -15,39 +19,33 @@ GRAMS_PATTERN = re.compile(r"\b\d+\s*(г|гр|g)\b", re.IGNORECASE)
 
 # Retry configuration
 RETRY_MAX_ATTEMPTS = 3
-RETRY_INITIAL_DELAY = 1.0  # seconds
-RETRY_MAX_DELAY = 10.0  # seconds
+RETRY_INITIAL_DELAY = 1.0
+RETRY_MAX_DELAY = 10.0
 RETRY_BACKOFF_MULTIPLIER = 2.0
 RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 NON_RETRYABLE_STATUS_CODES = {400, 401, 403, 413, 422}
 
-# JSON validation retry configuration
-# DISABLED: json_repair + native JSON mode handle all edge cases automatically
-# No need for retry loop - if it fails, retry won't help
-JSON_RETRY_ENABLED = False  # No JSON retries (was causing 2-minute waits)
-
 # OpenRouter request configuration
-OPENROUTER_TIMEOUT = 20.0  # seconds (P0: faster failure detection, was 30.0)
-OPENROUTER_MAX_TOKENS = 2000  # Sufficient for complete JSON response (prevents truncation)
-OPENROUTER_IMAGE_DETAIL = "low"  # P1.4 - cost optimization
+OPENROUTER_TIMEOUT = 20.0
+OPENROUTER_MAX_TOKENS = 2000
+OPENROUTER_IMAGE_DETAIL = "low"
 
 
 class OpenRouterError(Exception):
-    """Custom exception for OpenRouter API errors"""
+    """Custom exception for OpenRouter API errors."""
 
-    pass
+
+def safe_str(value: Any) -> str:
+    """Safely convert any value to string for logging (never raises)."""
+    try:
+        if isinstance(value, (dict, list)):
+            return json.dumps(value, ensure_ascii=False)
+        return str(value)
+    except Exception:
+        return repr(value)
 
 
 def has_explicit_grams(user_comment: str | None) -> bool:
-    """
-    Check if user comment contains explicit weight measurements
-
-    Args:
-        user_comment: User's comment about the food
-
-    Returns:
-        True if comment contains weight measurements like "150 г", "200 g"
-    """
     if not user_comment:
         return False
     return bool(GRAMS_PATTERN.search(user_comment))
@@ -57,20 +55,9 @@ def build_food_recognition_prompt(
     user_comment: Optional[str] = None, locale: str = "ru"
 ) -> str:
     """
-    Build prompt for food recognition task with Chain-of-Thought reasoning.
-
-    Chain-of-Thought improves accuracy by making the model analyze the image
-    before generating JSON, reducing hallucinations.
-
-    Args:
-        user_comment: Optional user comment with food description and/or weights
-        locale: Language locale for the prompt (default: "ru")
-
-    Returns:
-        Formatted prompt string for the LLM with CoT instructions
+    IMPORTANT: This prompt is designed for OpenRouter native JSON mode (response_format=json_object).
+    Therefore: NO chain-of-thought, NO extra text, ONLY JSON object output.
     """
-
-    # Prepare user comment section
     comment_text = (
         user_comment.strip() if user_comment and user_comment.strip() else None
     )
@@ -82,99 +69,29 @@ def build_food_recognition_prompt(
 {comment_text if comment_text else "Комментарий отсутствует"}
 ================================
 """
-
         weight_instruction = ""
         if has_weights:
-            weight_instruction = "\n⚠️ ВАЖНО: ПОЛЬЗОВАТЕЛЬ УКАЗАЛ ТОЧНЫЕ ВЕСА ПРОДУКТОВ — НЕ ИЗМЕНЯЙ ИХ БЕЗ ЯВНОГО ПРОТИВОРЕЧИЯ С ФОТО."
+            weight_instruction = "\n⚠️ ВАЖНО: ПОЛЬЗОВАТЕЛЬ УКАЗАЛ ТОЧНЫЕ ВЕСА ПРОДУКТОВ — НЕ МЕНЯЙ ИХ БЕЗ ЯВНОГО ПРОТИВОРЕЧИЯ С ФОТО."
 
-        base_prompt = f"""Ты — профессиональный диетолог-технолог. Твоя задача — точно оценить калорийность по фото.
+        return f"""Ты — профессиональный диетолог-технолог. Твоя задача — оценить КБЖУ по фото максимально точно.
 {comment_section}{weight_instruction}
 
-⚠️ ВАЖНО: Распознавай ВСЮ ЕДУ И НАПИТКИ на фото, даже если:
-- Рядом есть руки, стол, компьютер, телефон или другие объекты
-- Это всего один напиток (кофе, сок, смузи и т.д.)
-- Еда частично закрыта или в упаковке
-- На фоне есть посторонние предметы
+ПРАВИЛА:
+1) Распознавай ВСЮ ЕДУ И НАПИТКИ на фото. Игнорируй фоновые объекты (стол, техника, руки, мебель).
+2) Если комментарий пустой или содержит только название блюда — верни ОДНО блюдо целиком.
+3) Если в комментарии перечислены ингредиенты — верни каждый ингредиент отдельной строкой в items.
+4) Если в комментарии указаны веса (например: "курица 150 г, рис 200 г"):
+   - Считай эти веса основным источником правды
+   - Не меняй grams, кроме явного противоречия с фото
+   - Если сомневаешься — оставь веса и опиши сомнения в model_notes
 
-ИГНОРИРУЙ фоновые объекты (мебель, техника, посуда), но ОБЯЗАТЕЛЬНО распознавай:
-- Все блюда и продукты (твёрдая еда)
-- Все напитки (кофе, чай, сок, молоко, смузи, вода с добавками и т.д.)
+ОТВЕТ: ВЕРНИ ТОЛЬКО ВАЛИДНЫЙ JSON ОБЪЕКТ (без текста/markdown).
 
-═══════════════════════════════════════════════════════════════
-ШАГ 1: АНАЛИЗ (Chain-of-Thought Reasoning)
-═══════════════════════════════════════════════════════════════
-
-Сначала опиши свой мыслительный процесс на РУССКОМ языке:
-
-1. **Визуальные признаки:** Что именно ты видишь на фото?
-   - Какие продукты/блюда/напитки распознаёшь?
-   - Цвет, текстура, форма каждого компонента
-   - Игнорируй фоновые объекты (руки, стол, техника)
-
-2. **Оценка размера и веса:**
-   - Используй приборы/тарелку/руки как масштаб
-   - Оцени геометрию порции (диаметр, высота, объём)
-   - Сравни с типичными порциями этого блюда
-
-3. **Обоснование веса:**
-   - Почему именно такой вес (например, 300г, а не 500г)?
-   - Какие признаки указывают на этот вес?
-   - Есть ли сомнения в оценке?
-
-4. **Проверка комментария:**
-   - Соответствует ли фото комментарию пользователя?
-   - Если пользователь указал веса, видны ли эти порции на фото?
-   - Есть ли противоречия между фото и комментарием?
-
-Начни свой анализ с метки ___ANALYSIS___ и закончи меткой ___ANALYSIS_END___
-
-═══════════════════════════════════════════════════════════════
-ШАГ 2: JSON (Strict Format)
-═══════════════════════════════════════════════════════════════
-
-После анализа выдай финальный результат в JSON формате.
-
-⚠️ ЯЗЫКОВЫЕ ПРАВИЛА:
-- ВСЕ названия блюд (name) — ТОЛЬКО НА РУССКОМ ЯЗЫКЕ
-- Даже если это "Hot Dog", пиши "Хот-дог"
-- Даже если это "Burger", пиши "Бургер"
-- НИКОГДА не используй английские слова в полях name и model_notes
-
-ПРАВИЛА СОСТАВА (КРИТИЧЕСКИ ВАЖНО):
-
-1. **Если комментарий ПУСТОЙ или содержит только название блюда:**
-   - Верни ОДНО блюдо целиком
-   - Примеры:
-     * Фото бургера, комментарий пустой → "Чизбургер, 300г"
-     * Комментарий "суп грибной" → "Суп грибной, 350г"
-     * Комментарий "пицца" → "Пицца Маргарита, 400г"
-
-2. **Если в комментарии перечислены ИНГРЕДИЕНТЫ:**
-   - Верни каждый ингредиент ОТДЕЛЬНОЙ строкой в items
-   - Примеры:
-     * Комментарий "курица 150г, рис 200г" →
-       items: [{{"name": "Куриная грудка", "grams": 150}}, {{"name": "Рис отварной", "grams": 200}}]
-     * Комментарий "индейка, картофель, огурец" →
-       items: [{{"name": "Индейка", "grams": ...}}, {{"name": "Картофель", "grams": ...}}, {{"name": "Огурец", "grams": ...}}]
-
-ПРАВИЛА РАСЧЁТА ВЕСОВ:
-
-Если в комментарии указаны веса (например: "индейка 150 г, картофель 200 г"):
-1. Считай ЭТИ ВЕСА ОСНОВНЫМ ИСТОЧНИКОМ ПРАВДЫ
-2. Используй фото только для проверки адекватности
-3. НЕ МЕНЯЙ граммы из комментария, кроме явных противоречий
-4. Если есть сомнения, сохрани исходные граммы и опиши сомнения в model_notes
-
-Если в комментарии НЕТ весов:
-- Используй свой анализ из ШАГ 1 для оценки весов
-- Будь консервативен (лучше недооценить, чем переоценить)
-
-Начни JSON-часть с метки ___JSON___ и выдай валидный JSON:
-
+ФОРМАТ:
 {{
   "items": [
     {{
-      "name": "название продукта (РУССКИЙ язык)",
+      "name": "название продукта (ТОЛЬКО РУССКИЙ язык)",
       "grams": число,
       "kcal": число,
       "protein": число,
@@ -188,63 +105,41 @@ def build_food_recognition_prompt(
     "fat": число,
     "carbohydrates": число
   }},
-  "model_notes": "краткие комментарии (РУССКИЙ язык)"
+  "model_notes": "краткие комментарии (ТОЛЬКО РУССКИЙ язык)"
 }}
 
-⚠️ КРИТИЧЕСКИ ВАЖНО:
-1. Используй метки ___ANALYSIS___ и ___JSON___ для разделения частей
-2. Все названия продуктов ТОЛЬКО на русском языке
-3. JSON должен быть валидным (закрытые кавычки, без trailing commas)
-4. Используй стандартные базы данных по питанию для расчёта КБЖУ"""
-
-    else:  # English
+ЯЗЫКОВОЕ ПРАВИЛО: name и model_notes ТОЛЬКО НА РУССКОМ языке.
+"""
+    else:
         comment_section = f"""
 === USER COMMENT ===
 {comment_text if comment_text else "No comment provided"}
 ====================
 """
-
         weight_instruction = ""
         if has_weights:
             weight_instruction = "\n⚠️ IMPORTANT: USER PROVIDED EXACT WEIGHTS — DO NOT CHANGE THEM WITHOUT EXPLICIT CONTRADICTION WITH THE PHOTO."
-
-        base_prompt = f"""You are an expert in nutrition and portion weighing. You have:
-1) A PHOTO of the dish.
-2) A USER COMMENT with description and product weights.
-
-First, CAREFULLY READ the comment, then look at the photo.
+        return f"""You are a nutrition expert. Estimate nutrition from a photo.
 {comment_section}{weight_instruction}
 
 RULES:
+- Recognize all food and drinks; ignore background objects.
+- If comment is empty or only dish name: return ONE dish item.
+- If comment lists ingredients: return each ingredient as a separate item.
+- If comment includes grams: treat them as primary truth; do not change unless photo contradicts.
 
-If the comment specifies weights and composition (e.g., "turkey 150 g, potatoes 200 g"):
+OUTPUT: ONLY a valid JSON object (no markdown, no extra text).
 
-1. Consider THESE WEIGHTS AND COMPOSITION as the PRIMARY SOURCE OF TRUTH.
-2. Use the photo only to verify plausibility (is there actually turkey, potatoes, no completely different products).
-3. DO NOT CHANGE the grams from the comment, except when they clearly contradict the image
-   (e.g., "cucumber 50 g" is written, but the photo shows a huge pizza without cucumber).
-4. If in doubt, you MUST keep the original grams from the comment and describe doubts in "model_notes".
-
-If there are NO weights in the comment, but there is a description:
-- Determine composition from comment + photo.
-- Estimate weights from photo as realistically as possible.
-
-If the comment is empty:
-- Work from photo only.
-- Identify all products in the image.
-- Estimate weights as accurately as possible.
-
-RESPONSE FORMAT — STRICTLY JSON without extra text:
-
+FORMAT:
 {{
   "items": [
     {{
-      "name": "product or dish name",
-      "grams": number,         // weight in grams, float
-      "kcal": number,          // calories
-      "protein": number,       // protein (g)
-      "fat": number,           // fat (g)
-      "carbohydrates": number  // carbohydrates (g)
+      "name": "product/dish name",
+      "grams": number,
+      "kcal": number,
+      "protein": number,
+      "fat": number,
+      "carbohydrates": number
     }}
   ],
   "total": {{
@@ -253,135 +148,123 @@ RESPONSE FORMAT — STRICTLY JSON without extra text:
     "fat": number,
     "carbohydrates": number
   }},
-  "model_notes": "brief comments on recognition, doubts, clarifications"
+  "model_notes": "brief notes"
 }}
-
-CRITICALLY IMPORTANT:
-- If the user specified concrete grams — use THEM, don't change.
-- Don't add new products that are clearly not in the comment or photo.
-- If NOT SURE about something, write about it in "model_notes", but don't break JSON structure.
-- Don't use natural language comments outside the "model_notes" field.
-- Response must be valid JSON (no comments, no extra text before or after JSON).
-- Use standard nutrition databases for calculating calories and macros.
-
-⚠️ CRITICAL — RESPONSE FORMAT:
-1. Your response MUST be ONLY a JSON object.
-2. NO markdown blocks (```json).
-3. NO text before or after JSON.
-4. NO natural language comments outside "model_notes" field.
-5. Verify syntax: all strings closed with quotes, no trailing commas.
-
-Start your response immediately with opening curly brace {{"""
-
-    return base_prompt
+"""
 
 
 def normalize_item_fields(item: dict) -> dict:
-    """
-    Normalize field names to match SSOT schema.
+    """Normalize alternative field names to SSOT."""
+    if not isinstance(item, dict):
+        raise OpenRouterError(f"AI item must be an object, got: {type(item).__name__}")
 
-    LLM models may return alternative field names (e.g., "carbs" instead of "carbohydrates",
-    "calories" instead of "kcal"). This function normalizes them to match our schema.
+    normalized = dict(item)
 
-    Args:
-        item: Raw item dict from AI response
-
-    Returns:
-        Normalized item dict with SSOT field names
-    """
-    # Create a copy to avoid mutating the original
-    normalized = item.copy()
-
-    # Normalize: carbs → carbohydrates
+    # carbs -> carbohydrates
     if "carbs" in normalized and "carbohydrates" not in normalized:
         normalized["carbohydrates"] = normalized.pop("carbs")
 
-    # Normalize: calories → kcal
+    # calories -> kcal
     if "calories" in normalized and "kcal" not in normalized:
         normalized["kcal"] = normalized.pop("calories")
+
+    # amount_grams -> grams
+    if "amount_grams" in normalized and "grams" not in normalized:
+        normalized["grams"] = normalized.pop("amount_grams")
 
     return normalized
 
 
-def parse_ai_response(response_text: str) -> tuple[List[FoodItem], Optional[str]]:
+def _ensure_dict(obj: Any, context: str) -> dict:
+    """Ensure obj is a dict; try json.loads if it's a JSON string; otherwise raise."""
+    if isinstance(obj, dict):
+        return obj
+    if isinstance(obj, str):
+        try:
+            parsed = json.loads(obj)
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception:
+            pass
+    logger.error(
+        "%s: expected dict, got %s: %s", context, type(obj).__name__, safe_str(obj)
+    )
+    raise OpenRouterError(f"{context}: expected JSON object")
+
+
+def parse_ai_response(response_text: str) -> Tuple[List[FoodItem], Optional[str]]:
     """
-    Parse AI model response into structured format with Chain-of-Thought support.
-
-    Handles CoT format:
-    - Ignores everything before ___JSON___ marker
-    - Extracts JSON from after the marker
-    - Uses json_repair for robust parsing
-
-    Also handles:
-    - Unterminated strings (connection cuts)
-    - Missing closing braces/brackets
-    - Markdown code blocks
-    - Trailing commas
+    Parse AI model response (expected JSON object).
+    Uses json_repair for robustness, but MUST enforce dict/list types.
     """
-
     try:
-        # Extract JSON part from Chain-of-Thought response
-        json_text = response_text
+        data = repair_json(response_text, return_objects=True)
+        data = _ensure_dict(data, "AI response root")
 
-        # Look for ___JSON___ separator
-        if "___JSON___" in response_text:
-            # Extract everything after ___JSON___
-            parts = response_text.split("___JSON___", 1)
-            json_text = parts[1].strip()
-            logger.debug("Found ___JSON___ separator, extracted JSON part")
-        else:
-            # Fallback: try to find first { (for backward compatibility)
-            logger.debug("No ___JSON___ separator found, using full response")
+        items_raw = data.get("items", []) or []
+        if not isinstance(items_raw, list):
+            logger.error("AI response items is not a list: %s", safe_str(items_raw))
+            raise OpenRouterError("AI response items must be a list")
 
-        # Use json_repair to extract and fix JSON
-        # This handles unterminated strings, missing braces, markdown blocks, etc.
-        data = repair_json(json_text, return_objects=True)
+        items: List[FoodItem] = []
+        for item_data in items_raw:
+            if not isinstance(item_data, dict):
+                logger.error("AI item is not object: %s", safe_str(item_data))
+                raise OpenRouterError("AI item must be an object")
 
-        # Extract items
-        items = []
-        for item_data in data.get("items", []):
-            # Normalize field names before creating FoodItem
-            normalized_item = normalize_item_fields(item_data)
+            normalized = normalize_item_fields(item_data)
 
-            items.append(
-                FoodItem(
-                    name=normalized_item["name"],
-                    grams=float(normalized_item["grams"]),
-                    kcal=float(normalized_item["kcal"]),
-                    protein=float(normalized_item["protein"]),
-                    fat=float(normalized_item["fat"]),
-                    carbohydrates=float(normalized_item["carbohydrates"]),
+            # Required fields
+            try:
+                items.append(
+                    FoodItem(
+                        name=str(normalized["name"]),
+                        grams=float(normalized["grams"]),
+                        kcal=float(normalized["kcal"]),
+                        protein=float(normalized["protein"]),
+                        fat=float(normalized["fat"]),
+                        carbohydrates=float(normalized["carbohydrates"]),
+                    )
                 )
-            )
+            except KeyError as e:
+                logger.error(
+                    "Missing field in AI item: %s item=%s", str(e), safe_str(normalized)
+                )
+                raise OpenRouterError(f"Missing required field: {e}")
+            except (TypeError, ValueError) as e:
+                logger.error(
+                    "Invalid field types in AI item: %s item=%s",
+                    safe_str(e),
+                    safe_str(normalized),
+                )
+                raise OpenRouterError(f"Invalid field types: {e}")
 
         model_notes = data.get("model_notes")
+        if model_notes is not None and not isinstance(model_notes, str):
+            model_notes = safe_str(model_notes)
 
         return items, model_notes
 
-    except KeyError as e:
-        logger.error(f"Missing required field in AI response: {e}")
-        raise OpenRouterError(f"Missing required field in AI response: {e}")
-    except (ValueError, TypeError) as e:
-        logger.error(f"Invalid data type in AI response: {e}")
-        raise OpenRouterError(f"Invalid data type in AI response: {e}")
+    except OpenRouterError:
+        raise
+    except Exception as e:
+        logger.error(
+            "Failed to parse AI response: %s raw=%s",
+            safe_str(e),
+            safe_str(response_text)[:800],
+        )
+        raise OpenRouterError(f"Failed to parse AI response: {e}")
 
 
 async def _make_openrouter_request(
     client: httpx.AsyncClient, url: str, headers: dict, payload: dict
 ) -> httpx.Response:
-    """
-    Make a single request to OpenRouter with retry logic.
-
-    Implements exponential backoff for retryable errors (429, 5xx, timeout).
-    Does NOT retry for non-retryable errors (400, 401, 403, 413, 422).
-    """
-    last_exception = None
+    last_exception: Exception | None = None
 
     for attempt in range(1, RETRY_MAX_ATTEMPTS + 1):
         try:
             response = await client.post(url, headers=headers, json=payload)
 
-            # Check if we should retry based on status code
             if response.status_code in RETRYABLE_STATUS_CODES:
                 if attempt < RETRY_MAX_ATTEMPTS:
                     delay = min(
@@ -390,20 +273,22 @@ async def _make_openrouter_request(
                         RETRY_MAX_DELAY,
                     )
                     logger.warning(
-                        f"OpenRouter returned {response.status_code}, "
-                        f"retrying in {delay:.1f}s (attempt {attempt}/{RETRY_MAX_ATTEMPTS})"
+                        "OpenRouter returned %s, retrying in %.1fs (attempt %s/%s)",
+                        response.status_code,
+                        delay,
+                        attempt,
+                        RETRY_MAX_ATTEMPTS,
                     )
                     await asyncio.sleep(delay)
                     continue
-                else:
-                    # Last attempt failed, return the response
-                    logger.error(
-                        f"OpenRouter returned {response.status_code} after "
-                        f"{RETRY_MAX_ATTEMPTS} attempts"
-                    )
-                    return response
 
-            # Non-retryable status or success - return immediately
+                logger.error(
+                    "OpenRouter returned %s after %s attempts",
+                    response.status_code,
+                    RETRY_MAX_ATTEMPTS,
+                )
+                return response
+
             return response
 
         except httpx.TimeoutException as e:
@@ -414,19 +299,18 @@ async def _make_openrouter_request(
                     RETRY_MAX_DELAY,
                 )
                 logger.warning(
-                    f"OpenRouter request timed out, "
-                    f"retrying in {delay:.1f}s (attempt {attempt}/{RETRY_MAX_ATTEMPTS})"
+                    "OpenRouter timeout, retrying in %.1fs (attempt %s/%s)",
+                    delay,
+                    attempt,
+                    RETRY_MAX_ATTEMPTS,
                 )
                 await asyncio.sleep(delay)
                 continue
-            else:
-                logger.error(
-                    f"OpenRouter request timed out after {RETRY_MAX_ATTEMPTS} attempts"
-                )
-                raise
+
+            logger.error("OpenRouter timeout after %s attempts", RETRY_MAX_ATTEMPTS)
+            raise
 
         except httpx.RequestError as e:
-            # Network errors - retry
             last_exception = e
             if attempt < RETRY_MAX_ATTEMPTS:
                 delay = min(
@@ -434,18 +318,22 @@ async def _make_openrouter_request(
                     RETRY_MAX_DELAY,
                 )
                 logger.warning(
-                    f"OpenRouter request failed ({type(e).__name__}), "
-                    f"retrying in {delay:.1f}s (attempt {attempt}/{RETRY_MAX_ATTEMPTS})"
+                    "OpenRouter request error (%s), retrying in %.1fs (attempt %s/%s)",
+                    type(e).__name__,
+                    delay,
+                    attempt,
+                    RETRY_MAX_ATTEMPTS,
                 )
                 await asyncio.sleep(delay)
                 continue
-            else:
-                logger.error(
-                    f"OpenRouter request failed after {RETRY_MAX_ATTEMPTS} attempts: {e}"
-                )
-                raise
 
-    # Should not reach here, but just in case
+            logger.error(
+                "OpenRouter request error after %s attempts: %s",
+                RETRY_MAX_ATTEMPTS,
+                safe_str(e),
+            )
+            raise
+
     if last_exception:
         raise last_exception
     raise OpenRouterError("Unexpected retry loop exit")
@@ -457,34 +345,11 @@ async def recognize_food_with_bytes(
     content_type: str,
     user_comment: Optional[str] = None,
     locale: str = "ru",
-) -> tuple[List[FoodItem], TotalNutrition, Optional[str]]:
-    """
-    Call OpenRouter API to recognize food in image and return nutritional info.
-
-    Uses json_repair + native JSON mode for reliable parsing (no retry loop needed).
-
-    Args:
-        image_bytes: Raw image file bytes
-        filename: Original filename (for logging)
-        content_type: MIME type of the image (e.g., "image/jpeg")
-        user_comment: Optional user comment about the food
-        locale: Language locale for the prompt (default: "ru")
-
-    Returns:
-        Tuple of (food_items, total_nutrition, model_notes)
-
-    Raises:
-        OpenRouterError: If API call fails or response is invalid
-    """
-
-    # Convert bytes to base64 data URL
+) -> Tuple[List[FoodItem], TotalNutrition, Optional[str]]:
     b64_image = base64.b64encode(image_bytes).decode("ascii")
     data_url = f"data:{content_type};base64,{b64_image}"
 
-    logger.debug(f"Converted image to base64 data URL (length: {len(data_url)} chars)")
-
     try:
-        # Build prompt
         prompt = build_food_recognition_prompt(user_comment, locale)
 
         headers = {
@@ -526,34 +391,59 @@ async def recognize_food_with_bytes(
             if response.status_code != 200:
                 error_detail = response.text
                 logger.error(
-                    f"OpenRouter API error: {response.status_code} - {error_detail}"
+                    "OpenRouter API error: status=%s body=%s",
+                    response.status_code,
+                    safe_str(error_detail),
                 )
                 raise OpenRouterError(
                     f"OpenRouter API returned {response.status_code}: {error_detail}"
                 )
 
-            result = response.json()
+            # Robust JSON decoding
+            try:
+                result = response.json()
+            except Exception as e:
+                logger.error(
+                    "OpenRouter response is not JSON. err=%s body=%s",
+                    safe_str(e),
+                    safe_str(response.text),
+                )
+                raise OpenRouterError("OpenRouter returned invalid JSON")
 
-            # Log token usage if available
-            usage = result.get("usage")
-            if usage:
-                logger.info(
-                    f"OpenRouter token usage: "
-                    f"prompt={usage.get('prompt_tokens', 'N/A')}, "
-                    f"completion={usage.get('completion_tokens', 'N/A')}, "
-                    f"total={usage.get('total_tokens', 'N/A')}"
+            if not isinstance(result, dict):
+                logger.error(
+                    "OpenRouter returned non-object JSON. type=%s value=%s",
+                    type(result).__name__,
+                    safe_str(result),
+                )
+                raise OpenRouterError(
+                    "OpenRouter returned non-object JSON (expected dict)"
                 )
 
-            # Extract AI response text
-            ai_response_text = result["choices"][0]["message"]["content"]
+            usage = result.get("usage")
+            if isinstance(usage, dict):
+                logger.info(
+                    "OpenRouter token usage: prompt=%s completion=%s total=%s",
+                    usage.get("prompt_tokens", "N/A"),
+                    usage.get("completion_tokens", "N/A"),
+                    usage.get("total_tokens", "N/A"),
+                )
 
-            # DEBUG: Log AI response for troubleshooting (temporary)
-            logger.info(f"AI response (first 500 chars): {ai_response_text[:500]}")
+            try:
+                ai_response_text = result["choices"][0]["message"]["content"]
+            except Exception as e:
+                logger.error(
+                    "Unexpected OpenRouter response structure: %s body=%s",
+                    safe_str(e),
+                    safe_str(result)[:2000],
+                )
+                raise OpenRouterError("Unexpected response structure from OpenRouter")
 
-            # Parse the response (json_repair handles all edge cases)
+            # Safe debug log
+            logger.info("AI response (first 800 chars): %s", ai_response_text[:800])
+
             items, model_notes = parse_ai_response(ai_response_text)
 
-            # Calculate totals
             total = TotalNutrition(
                 kcal=sum(item.kcal for item in items),
                 protein=sum(item.protein for item in items),
@@ -567,14 +457,14 @@ async def recognize_food_with_bytes(
         logger.error("OpenRouter API request timed out")
         raise OpenRouterError("Request to OpenRouter API timed out")
     except httpx.RequestError as e:
-        logger.error(f"OpenRouter API request failed: {e}")
+        logger.error("OpenRouter API request failed: %s", safe_str(e))
         raise OpenRouterError(f"Failed to connect to OpenRouter API: {e}")
-    except KeyError as e:
-        logger.error(f"Unexpected response structure from OpenRouter: {e}")
-        raise OpenRouterError(f"Unexpected response structure from OpenRouter: {e}")
     except OpenRouterError:
-        # Re-raise OpenRouterError (from parse_ai_response or other places)
         raise
     except Exception as e:
-        logger.error(f"Unexpected error in recognize_food_with_bytes: {e}", exc_info=True)
+        logger.error(
+            "Unexpected error in recognize_food_with_bytes: %s",
+            safe_str(e),
+            exc_info=True,
+        )
         raise OpenRouterError(f"Unexpected error: {e}")

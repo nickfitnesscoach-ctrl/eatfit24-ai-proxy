@@ -547,6 +547,9 @@ async def recognize_food_with_bytes(
             # Extract AI response text
             ai_response_text = result["choices"][0]["message"]["content"]
 
+            # DEBUG: Log AI response for troubleshooting (temporary)
+            logger.info(f"AI response (first 500 chars): {ai_response_text[:500]}")
+
             # Parse the response (json_repair handles all edge cases)
             items, model_notes = parse_ai_response(ai_response_text)
 

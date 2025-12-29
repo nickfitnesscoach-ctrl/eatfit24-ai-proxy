@@ -13,8 +13,15 @@ class FoodItem(BaseModel):
 
     @model_serializer
     def serialize_with_aliases(self) -> dict[str, Any]:
-        # Base is SSOT
-        data = self.model_dump()
+        # Base is SSOT (mode='python' prevents recursion)
+        data = {
+            "name": self.name,
+            "grams": self.grams,
+            "kcal": self.kcal,
+            "protein": self.protein,
+            "fat": self.fat,
+            "carbohydrates": self.carbohydrates,
+        }
         # Back-compat aliases
         data["amount_grams"] = self.grams
         data["calories"] = self.kcal
@@ -30,7 +37,13 @@ class TotalNutrition(BaseModel):
 
     @model_serializer
     def serialize_with_aliases(self) -> dict[str, Any]:
-        data = self.model_dump()
+        # Prevent recursion by using direct field access
+        data = {
+            "kcal": self.kcal,
+            "protein": self.protein,
+            "fat": self.fat,
+            "carbohydrates": self.carbohydrates,
+        }
         data["calories"] = self.kcal
         data["carbs"] = self.carbohydrates
         return data

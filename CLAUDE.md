@@ -71,9 +71,24 @@ docker compose down && docker compose up -d --build
 
 1. **FastAPI endpoint** ([app/main.py](app/main.py)) receives multipart/form-data with image + optional comment
 2. **Authentication** ([app/auth.py](app/auth.py)) validates X-API-Key header using timing-safe comparison
-3. **OpenRouter client** ([app/openrouter_client.py](app/openrouter_client.py)) sends image + prompt to AI model
-4. **Response parsing** validates and normalizes JSON from AI (handles field aliases: `carbs`→`carbohydrates`, `calories`→`kcal`)
-5. **Schemas** ([app/schemas.py](app/schemas.py)) serialize response with both original and alias fields for frontend/backend compatibility
+3. **Image Validation** — checks MIME type, size, and readability
+4. **Food Gate** ([app/food_gate.py](app/food_gate.py)) — lightweight LLM check: is this food? (Anti-Hallucination)
+   - If `is_food=false` or `confidence < 0.60` → returns `UNSUPPORTED_CONTENT`
+5. **OpenRouter client** ([app/openrouter_client.py](app/openrouter_client.py)) sends image + prompt to AI model
+6. **Post-Validation** — checks for empty results → `EMPTY_RESULT`
+7. **Response parsing** validates and normalizes JSON from AI (handles field aliases: `carbs`→`carbohydrates`, `calories`→`kcal`)
+8. **Schemas** ([app/schemas.py](app/schemas.py)) serialize response with both original and alias fields for frontend/backend compatibility
+
+### Anti-Hallucination Gate
+
+Prevents AI from hallucinating food on non-food images. See [docs/AI_PROXY_GATE.md](docs/AI_PROXY_GATE.md) for details.
+
+**Error Codes:**
+- `UNSUPPORTED_CONTENT` (400) — no food in image
+- `EMPTY_RESULT` (400) — food detected but recognition failed
+- `INVALID_IMAGE` (400) — file unreadable
+- `UNSUPPORTED_IMAGE_FORMAT` (400) — not JPEG/PNG
+- `IMAGE_TOO_LARGE` (413) — exceeds max size
 
 ### Critical Components
 
@@ -104,9 +119,9 @@ LLM models may return different field names. Normalization happens in two places
 
 #### Logging
 
-- **Structured JSON logs** with fields: `ts`, `level`, `msg`, `request_id`, `path`, `method`, `status`, `duration_ms`, `client_ip`
-- **Request ID tracking** via ContextVar (main.py:14-15)
-- Request IDs flow through: incoming header → context variable → logs → response header
+- **Structured JSON logs** with fields: `ts`, `level`, `msg`, `trace_id`, `path`, `method`, `status`, `duration_ms`, `client_ip`
+- **Trace ID tracking** via ContextVar — accepts `X-Trace-Id` header, generates UUID if missing
+- Gate logging: `gate.is_food`, `gate.confidence`, `final_status`, `error_code`
 
 ### Configuration (app/config.py)
 
@@ -121,6 +136,9 @@ All settings loaded via pydantic-settings from `.env` file:
 - `LOG_LEVEL` - Default: INFO
 - `MAX_IMAGE_SIZE_BYTES` - Default: 5MB
 - `OPENROUTER_BASE_URL` - Default: https://openrouter.ai/api/v1
+- `FOOD_GATE_THRESHOLD` - Default: 0.60 (minimum confidence to pass gate)
+- `RECOGNITION_THRESHOLD` - Default: 0.65 (future use)
+- `AI_PROXY_ERROR_HTTP200_COMPAT` - Default: false (if true, errors return HTTP 200)
 
 ### Security
 

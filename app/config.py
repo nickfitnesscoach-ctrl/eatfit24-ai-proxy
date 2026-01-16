@@ -70,6 +70,27 @@ class Settings(BaseSettings):
     )
 
     # ============================
+    # Food Gate (Anti-Hallucination)
+    # ============================
+    food_gate_threshold: float = Field(
+        default=0.60,
+        validation_alias="FOOD_GATE_THRESHOLD",
+        description="Minimum confidence to pass food gate (reject if below)",
+    )
+
+    recognition_threshold: float = Field(
+        default=0.65,
+        validation_alias="RECOGNITION_THRESHOLD",
+        description="Recognition confidence threshold (future use)",
+    )
+
+    error_http200_compat: bool = Field(
+        default=False,
+        validation_alias="AI_PROXY_ERROR_HTTP200_COMPAT",
+        description="If true, return HTTP 200 for errors (legacy backend compat)",
+    )
+
+    # ============================
     # Pydantic settings config
     # ============================
     model_config = SettingsConfigDict(

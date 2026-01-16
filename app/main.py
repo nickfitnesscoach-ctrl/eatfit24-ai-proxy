@@ -289,27 +289,39 @@ async def recognize_food(
                 body, status = make_error_response("GATE_ERROR", trace_id)
                 return JSONResponse(status_code=status, content=body)
 
-            # Gate decision: reject if not food or low confidence
-            if (
-                not gate_result.is_food
-                or gate_result.confidence < settings.food_gate_threshold
-            ):
+            # Gate decision with confidence bands:
+            # < MIN → NOT_FOOD
+            # MIN to MED → LOW_CONFIDENCE (run recognition, but may fail gracefully)
+            # > MED → FOOD_LIKELY (confident, proceed normally)
+            confidence = gate_result.confidence if gate_result.confidence is not None else 0.0
+
+            if not gate_result.is_food or confidence < settings.food_gate_min_threshold:
+                # Definitely not food
                 logger.info(
-                    "Gate rejected",
+                    "Gate rejected: not food",
                     extra={
                         "final_status": "error",
                         "error_code": "UNSUPPORTED_CONTENT",
                         "gate.is_food": gate_result.is_food,
-                        "gate.confidence": gate_result.confidence,
+                        "gate.confidence": confidence,
                     },
                 )
                 body, status = make_error_response("UNSUPPORTED_CONTENT", trace_id)
                 return JSONResponse(status_code=status, content=body)
 
+            # Track if we're in low confidence zone (0.25-0.55)
+            is_low_confidence_zone = confidence < settings.food_gate_med_threshold
+
             # ============================
             # 4. Main Recognition
             # ============================
-            logger.info("Gate passed, running main recognition")
+            logger.info(
+                "Gate passed, running main recognition",
+                extra={
+                    "gate.confidence": confidence,
+                    "low_confidence_zone": is_low_confidence_zone,
+                },
+            )
 
             items, total, model_notes = await recognize_food_with_bytes(
                 image_bytes=content,
@@ -339,16 +351,26 @@ async def recognize_food(
         # 5. Post-Validation
         # ============================
         if not validate_recognition_result(items, total):
+            # Recognition failed (empty items)
+            # Choose error code based on gate confidence zone
+            if is_low_confidence_zone:
+                # Low confidence gate → suggest manual selection
+                error_code = "LOW_CONFIDENCE"
+            else:
+                # High confidence gate but recognition failed → EMPTY_RESULT
+                error_code = "EMPTY_RESULT"
+
             logger.info(
                 "Recognition returned empty result",
                 extra={
                     "final_status": "error",
-                    "error_code": "EMPTY_RESULT",
+                    "error_code": error_code,
                     "gate.is_food": gate_result.is_food,
-                    "gate.confidence": gate_result.confidence,
+                    "gate.confidence": confidence,
+                    "low_confidence_zone": is_low_confidence_zone,
                 },
             )
-            body, status = make_error_response("EMPTY_RESULT", trace_id)
+            body, status = make_error_response(error_code, trace_id)
             return JSONResponse(status_code=status, content=body)
 
         # ============================

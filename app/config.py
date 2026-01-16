@@ -77,11 +77,21 @@ class Settings(BaseSettings):
 
     # ============================
     # Food Gate (Anti-Hallucination)
+    # Confidence bands:
+    # < MIN → NOT_FOOD (reject as non-food)
+    # MIN to MED → LOW_CONFIDENCE (possible food, needs user confirmation)
+    # > MED → FOOD_LIKELY (proceed with recognition)
     # ============================
-    food_gate_threshold: float = Field(
-        default=0.60,
-        validation_alias="FOOD_GATE_THRESHOLD",
-        description="Minimum confidence to pass food gate (reject if below)",
+    food_gate_min_threshold: float = Field(
+        default=0.25,
+        validation_alias="FOOD_GATE_MIN_THRESHOLD",
+        description="Below this = NOT_FOOD (definitely not food)",
+    )
+
+    food_gate_med_threshold: float = Field(
+        default=0.55,
+        validation_alias="FOOD_GATE_MED_THRESHOLD",
+        description="Above this = FOOD_LIKELY (confident food detection, proceed with recognition)",
     )
 
     recognition_threshold: float = Field(

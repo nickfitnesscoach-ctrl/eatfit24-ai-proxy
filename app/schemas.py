@@ -103,6 +103,7 @@ class SuccessResponse(BaseModel):
 # Error codes supported by this proxy
 ErrorCode = Literal[
     "UNSUPPORTED_CONTENT",  # Image has no food
+    "LOW_CONFIDENCE",  # Possible food but needs user confirmation
     "EMPTY_RESULT",  # Food detected but recognition failed
     "INVALID_IMAGE",  # Image cannot be decoded/read
     "UNSUPPORTED_IMAGE_FORMAT",  # Content-type not in allowlist
@@ -148,6 +149,13 @@ ERROR_DEFINITIONS: dict[str, dict] = {
         "user_title": "Похоже, на фото не еда",
         "user_message": "Сфотографируйте блюдо крупнее при хорошем освещении.",
         "user_actions": ["retake"],
+        "allow_retry": False,
+    },
+    "LOW_CONFIDENCE": {
+        "http_status": 400,
+        "user_title": "Не удалось уверенно распознать",
+        "user_message": "Похоже на еду, но нужна ваша помощь. Выберите блюдо вручную или сделайте фото ближе.",
+        "user_actions": ["manual_select", "retake"],
         "allow_retry": False,
     },
     "EMPTY_RESULT": {

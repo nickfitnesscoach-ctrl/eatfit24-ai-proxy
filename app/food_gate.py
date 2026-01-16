@@ -29,22 +29,26 @@ def build_gate_prompt(locale: str = "ru") -> str:
     Returns ONLY JSON, no explanation.
     """
     if locale == "ru":
-        return """Проанализируй изображение. Это фотография еды?
+        return """Проанализируй изображение. Это может быть еда или съедобный продукт?
 
 ПРАВИЛА:
-- Еда должна быть ВИДИМОЙ и ГЛАВНОЙ в кадре
-- Скриншоты, мемы, интерфейсы, животные, лица, документы → is_food=false
-- Если сомневаешься — is_food=false (НЕ УГАДЫВАЙ)
+- Если изображение МОЖЕТ разумно представлять еду или съедобный продукт → is_food=true
+- Еда может быть в любом контексте: на тарелке, без контекста, один предмет, несколько предметов
+- НЕ ОТВЕРГАЙ фрукты, овощи, продукты без тарелки или стола
+- ТОЛЬКО для: скриншоты, мемы, интерфейсы, живые животные, лица людей, документы → is_food=false
+- При сомнении между "возможно еда" и "точно не еда" → is_food=true с низкой уверенностью
 
 ОТВЕТ: Только валидный JSON:
 {"is_food": boolean, "confidence": float от 0 до 1, "reason": "короткая причина"}"""
     else:
-        return """Analyze the image. Is this a photo of food?
+        return """Analyze the image. Could this reasonably be food or an edible product?
 
 RULES:
-- Food must be VISIBLE and DOMINANT in the frame
-- Screenshots, memes, interfaces, animals, faces, documents → is_food=false
-- If unsure → is_food=false (DO NOT GUESS)
+- If the image COULD reasonably represent food or an edible product → is_food=true
+- Food can be in any context: on plate, without context, single item, multiple items
+- DO NOT reject fruits, vegetables, products without plate or table
+- ONLY reject: screenshots, memes, interfaces, live animals, human faces, documents → is_food=false
+- When in doubt between "possibly food" and "definitely not food" → is_food=true with low confidence
 
 OUTPUT: Only valid JSON:
 {"is_food": boolean, "confidence": float 0-1, "reason": "short reason"}"""

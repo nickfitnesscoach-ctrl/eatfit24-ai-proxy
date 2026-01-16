@@ -84,6 +84,8 @@ def build_food_recognition_prompt(
    - Считай эти веса основным источником правды
    - Не меняй grams, кроме явного противоречия с фото
    - Если сомневаешься — оставь веса и опиши сомнения в model_notes
+5) ВАЖНО: Даже если на фото только один предмет без контекста (фрукт, овощ, продукт) — распознай его и оцени
+6) НЕ УГАДЫВАЙ: Если не можешь определить что это за еда — верни items=[] и укажи причину в model_notes
 
 ОТВЕТ: ВЕРНИ ТОЛЬКО ВАЛИДНЫЙ JSON ОБЪЕКТ (без текста/markdown).
 
@@ -127,6 +129,8 @@ RULES:
 - If comment is empty or only dish name: return ONE dish item.
 - If comment lists ingredients: return each ingredient as a separate item.
 - If comment includes grams: treat them as primary truth; do not change unless photo contradicts.
+- IMPORTANT: Even if photo shows only a single item without context (fruit, vegetable, product) — recognize it and estimate
+- DO NOT GUESS: If you cannot determine what food this is — return items=[] and explain in model_notes
 
 OUTPUT: ONLY a valid JSON object (no markdown, no extra text).
 

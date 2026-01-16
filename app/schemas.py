@@ -53,10 +53,14 @@ class TotalNutrition(BaseModel):
 # Gate Result (Anti-Hallucination)
 # ==================================
 class GateResult(BaseModel):
-    """Result from food detection gate."""
+    """Result from food detection gate.
 
-    is_food: bool
-    confidence: float
+    If is_food is None, it means gate response was invalid/unparseable.
+    This should be treated as GATE_ERROR, not as UNSUPPORTED_CONTENT.
+    """
+
+    is_food: Optional[bool]
+    confidence: Optional[float]
     reason: str
 
 
@@ -103,6 +107,7 @@ ErrorCode = Literal[
     "INVALID_IMAGE",  # Image cannot be decoded/read
     "UNSUPPORTED_IMAGE_FORMAT",  # Content-type not in allowlist
     "IMAGE_TOO_LARGE",  # Exceeds max size
+    "GATE_ERROR",  # Gate returned invalid/unparseable response
     "UPSTREAM_ERROR",  # AI provider error
     "UPSTREAM_TIMEOUT",  # AI provider timeout
     "RATE_LIMIT",  # Rate limited by AI provider
@@ -172,6 +177,13 @@ ERROR_DEFINITIONS: dict[str, dict] = {
         "user_message": "Максимальный размер — 5 МБ.",
         "user_actions": ["retake"],
         "allow_retry": False,
+    },
+    "GATE_ERROR": {
+        "http_status": 502,
+        "user_title": "Ошибка проверки изображения",
+        "user_message": "Не удалось проверить содержимое изображения. Попробуйте ещё раз.",
+        "user_actions": ["retry"],
+        "allow_retry": True,
     },
     "UPSTREAM_ERROR": {
         "http_status": 502,

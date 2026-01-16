@@ -276,6 +276,19 @@ async def recognize_food(
                 },
             )
 
+            # Check if gate response was invalid (is_food=None means parse error)
+            if gate_result.is_food is None:
+                logger.warning(
+                    "Gate returned invalid response",
+                    extra={
+                        "final_status": "error",
+                        "error_code": "GATE_ERROR",
+                        "gate.reason": gate_result.reason,
+                    },
+                )
+                body, status = make_error_response("GATE_ERROR", trace_id)
+                return JSONResponse(status_code=status, content=body)
+
             # Gate decision: reject if not food or low confidence
             if (
                 not gate_result.is_food
@@ -353,7 +366,7 @@ async def recognize_food(
 
         response = SuccessResponse(
             is_food=True,
-            confidence=gate_result.confidence,
+            confidence=gate_result.confidence if gate_result.confidence is not None else 0.0,
             gate_reason=gate_result.reason,
             trace_id=trace_id,
             result=RecognitionResult(

@@ -53,15 +53,21 @@ OUTPUT: Only valid JSON:
 def parse_gate_response(response_text: str) -> GateResult:
     """
     Parse gate LLM response with hardening.
-    If parsing fails, returns conservative result (not food).
+    If parsing fails, returns is_food=None to signal invalid upstream response
+    (not a content rejection).
     """
     try:
         # Try json_repair for robustness
         data = repair_json(response_text, return_objects=True)
 
         if not isinstance(data, dict):
-            logger.warning("Gate response is not a dict: %s", type(data).__name__)
-            return GateResult(is_food=False, confidence=0.0, reason="gate_parse_error")
+            raw_preview = response_text[:200] if isinstance(response_text, str) else str(response_text)[:200]
+            logger.warning(
+                "Gate response is not a dict: %s, raw_preview: %s",
+                type(data).__name__,
+                raw_preview
+            )
+            return GateResult(is_food=None, confidence=None, reason="invalid_gate_response")
 
         is_food = bool(data.get("is_food", False))
         confidence = float(data.get("confidence", 0.0))
@@ -73,8 +79,9 @@ def parse_gate_response(response_text: str) -> GateResult:
         return GateResult(is_food=is_food, confidence=confidence, reason=reason)
 
     except Exception as e:
-        logger.warning("Gate parse error: %s, raw: %s", str(e), response_text[:200])
-        return GateResult(is_food=False, confidence=0.0, reason="gate_parse_error")
+        raw_preview = response_text[:200] if isinstance(response_text, str) else str(response_text)[:200]
+        logger.warning("Gate parse error: %s, raw_preview: %s", str(e), raw_preview)
+        return GateResult(is_food=None, confidence=None, reason="invalid_gate_response")
 
 
 async def check_food_gate(
@@ -86,7 +93,8 @@ async def check_food_gate(
     Run lightweight food detection gate.
 
     Returns GateResult with is_food, confidence, reason.
-    On any error (network, parse, etc.), returns conservative result.
+    If parsing fails, returns is_food=None (caller should treat as GATE_ERROR).
+    On network/API errors, raises OpenRouterError.
     """
     b64_image = base64.b64encode(image_bytes).decode("ascii")
     data_url = f"data:{content_type};base64,{b64_image}"
@@ -143,19 +151,16 @@ async def check_food_gate(
 
             result = response.json()
             if not isinstance(result, dict):
-                logger.error("Gate: non-dict response")
-                return GateResult(
-                    is_food=False, confidence=0.0, reason="gate_parse_error"
-                )
+                logger.error("Gate: non-dict response from API")
+                raise OpenRouterError("Gate API returned non-dict response")
 
             try:
                 ai_text = result["choices"][0]["message"]["content"]
             except (KeyError, IndexError) as e:
                 logger.error("Gate: unexpected structure: %s", str(e))
-                return GateResult(
-                    is_food=False, confidence=0.0, reason="gate_parse_error"
-                )
+                raise OpenRouterError(f"Gate API response missing expected fields: {str(e)}")
 
+            # parse_gate_response returns is_food=None if parsing fails
             return parse_gate_response(ai_text)
 
     except httpx.TimeoutException:

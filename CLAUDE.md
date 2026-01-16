@@ -251,6 +251,10 @@ Prompts are in [app/openrouter_client.py](app/openrouter_client.py:54-226).
 
 ## Deployment
 
+**Production Server:**
+- Host: `root@185.171.80.128`
+- Project path: `/opt/eatfit24-ai-proxy`
+
 Production deployment is automated via GitHub Actions on push to `master`:
 1. SSH to server via Tailscale
 2. Pull latest code
@@ -259,9 +263,16 @@ Production deployment is automated via GitHub Actions on push to `master`:
 
 Manual deployment:
 ```bash
-ssh user@server
-cd eatfit24-ai-proxy
+ssh root@185.171.80.128
+cd /opt/eatfit24-ai-proxy
 git pull
 docker compose up -d --build
 curl http://localhost:8001/health  # Verify
+```
+
+**View logs:**
+```bash
+ssh root@185.171.80.128
+cd /opt/eatfit24-ai-proxy
+docker compose logs --tail=100 --follow
 ```

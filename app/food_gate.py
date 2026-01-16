@@ -4,6 +4,17 @@ Food Detection Gate (Anti-Hallucination)
 
 Lightweight LLM check to determine if an image contains food
 before running expensive recognition.
+
+ARCHITECTURAL INVARIANT:
+The gate answers ONLY the question: "Could this reasonably be food?"
+The gate does NOT decide: "Did we successfully recognize what food this is?"
+
+Gate responsibility: Permission (is this food?)
+Recognition responsibility: Ability (what food is this?)
+
+DO NOT conflate these two concerns. The gate should be permissive (fail-open),
+allowing uncertain cases to proceed to recognition where they can gracefully
+degrade to LOW_CONFIDENCE if recognition fails.
 """
 
 import base64

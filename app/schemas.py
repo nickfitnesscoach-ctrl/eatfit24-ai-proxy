@@ -101,6 +101,13 @@ class SuccessResponse(BaseModel):
 
 
 # Error codes supported by this proxy
+# SEMANTIC DIFFERENCE (critical for UX and analytics):
+# - LOW_CONFIDENCE: Gate says "possibly food" (0.25-0.55) but recognition returned empty
+#                   → Model is uncertain about WHAT this food is
+#                   → UX: Suggest manual selection + retake
+# - EMPTY_RESULT: Gate says "likely food" (>0.55) but recognition returned empty
+#                 → Photo quality issue (too small, bad lighting, blurry)
+#                 → UX: Suggest retake only (no manual selection)
 ErrorCode = Literal[
     "UNSUPPORTED_CONTENT",  # Image has no food
     "LOW_CONFIDENCE",  # Possible food but needs user confirmation

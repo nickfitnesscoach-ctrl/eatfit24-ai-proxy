@@ -30,7 +30,13 @@ class Settings(BaseSettings):
     openrouter_model: str = Field(
         ...,
         validation_alias="OPENROUTER_MODEL",
-        description="OpenRouter model to use (e.g. openai/gpt-4o-mini)",
+        description="OpenRouter model to use for main recognition (e.g. openai/gpt-4o-mini)",
+    )
+
+    openrouter_gate_model: str = Field(
+        default="",
+        validation_alias="OPENROUTER_GATE_MODEL",
+        description="Optional separate model for gate check. If empty, uses openrouter_model",
     )
 
     openrouter_base_url: str = Field(

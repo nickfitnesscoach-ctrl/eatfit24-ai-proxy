@@ -108,8 +108,11 @@ async def check_food_gate(
         "X-Title": "EatFit24-Gate",
     }
 
+    # Use separate gate model if configured, otherwise use main model
+    gate_model = settings.openrouter_gate_model or settings.openrouter_model
+
     payload = {
-        "model": settings.openrouter_model,
+        "model": gate_model,
         "max_tokens": GATE_MAX_TOKENS,
         "response_format": {"type": "json_object"},
         "messages": [

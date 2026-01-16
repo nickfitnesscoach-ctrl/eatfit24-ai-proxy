@@ -193,10 +193,27 @@ All settings loaded via pydantic-settings from `.env` file:
 
 ### Changing the AI Model
 
+**IMPORTANT:** Use only vision models that support `image->text` analysis. Never use image generation models like `gpt-5-image-mini`.
+
 Edit `.env` and update `OPENROUTER_MODEL`:
 ```bash
-OPENROUTER_MODEL=google/gemini-2.0-flash-001
+# Main recognition model
+OPENROUTER_MODEL=openai/gpt-4o-mini
+
+# Optional: separate gate model (if empty, uses main model)
+OPENROUTER_GATE_MODEL=openai/gpt-4o-mini
 ```
+
+**Recommended models:**
+- `openai/gpt-4o-mini` - Fast, cheap, reliable (RECOMMENDED)
+- `google/gemini-2.0-flash-exp` - Very fast, free tier available
+- `openai/gpt-4o` - Best accuracy, more expensive
+
+**Models to AVOID:**
+- ❌ `openai/gpt-5-image-mini` - Image generation model, not vision analysis
+- ❌ Any text-only models without vision support
+
+See [docs/MODEL_SELECTION.md](docs/MODEL_SELECTION.md) for detailed guide.
 
 Restart the service. No code changes needed.
 

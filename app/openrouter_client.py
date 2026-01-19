@@ -85,7 +85,16 @@ def build_food_recognition_prompt(
    - Не меняй grams, кроме явного противоречия с фото
    - Если сомневаешься — оставь веса и опиши сомнения в model_notes
 5) ВАЖНО: Даже если на фото только один предмет без контекста (фрукт, овощ, продукт) — распознай его и оцени
-6) НЕ УГАДЫВАЙ: Если не можешь определить что это за еда — верни items=[] и укажи причину в model_notes
+6) НАПИТКИ: Если видишь чашку/стакан/бутылку с напитком — ОБЯЗАТЕЛЬНО распознай:
+   - Тёмная жидкость в чашке → кофе (americano ~2 ккал/100мл) или чай (~0 ккал/100мл)
+   - С молочной пенкой → капучино/латте (~40 ккал/100мл)
+   - Прозрачная → вода (0 ккал) или зелёный чай
+   - Газированная тёмная → кола (~42 ккал/100мл)
+   - Оранжевая/цветная → сок (~45 ккал/100мл)
+   Оцени объём по размеру посуды (стандартная чашка ~200мл, стакан ~250мл, кружка ~300мл).
+   Укажи неопределённость в model_notes, но ВСЕГДА возвращай items с наиболее вероятным вариантом.
+7) ПРИНЦИП: Лучше дать приблизительную оценку с пояснением в model_notes, чем вернуть items=[]
+8) items=[] допустим ТОЛЬКО если на фото точно нет еды/напитков (пустая тарелка, не еда вообще)
 
 ОТВЕТ: ВЕРНИ ТОЛЬКО ВАЛИДНЫЙ JSON ОБЪЕКТ (без текста/markdown).
 
@@ -130,7 +139,16 @@ RULES:
 - If comment lists ingredients: return each ingredient as a separate item.
 - If comment includes grams: treat them as primary truth; do not change unless photo contradicts.
 - IMPORTANT: Even if photo shows only a single item without context (fruit, vegetable, product) — recognize it and estimate
-- DO NOT GUESS: If you cannot determine what food this is — return items=[] and explain in model_notes
+- DRINKS: If you see a cup/glass/bottle with a drink — ALWAYS recognize it:
+  * Dark liquid in cup → coffee (americano ~2 kcal/100ml) or tea (~0 kcal/100ml)
+  * With milk foam → cappuccino/latte (~40 kcal/100ml)
+  * Clear → water (0 kcal) or green tea
+  * Dark carbonated → cola (~42 kcal/100ml)
+  * Orange/colored → juice (~45 kcal/100ml)
+  Estimate volume by container size (standard cup ~200ml, glass ~250ml, mug ~300ml).
+  Note uncertainty in model_notes, but ALWAYS return items with most likely variant.
+- PRINCIPLE: Better to give approximate estimate with explanation in model_notes than return items=[]
+- items=[] is only acceptable if photo definitely has no food/drinks (empty plate, not food at all)
 
 OUTPUT: ONLY a valid JSON object (no markdown, no extra text).
 
